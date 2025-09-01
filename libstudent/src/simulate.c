@@ -126,14 +126,10 @@ static void parallel_triangle(sphere_t *spheres, int n_spheres, double g, int lo
 }
 
 void update_accelerations(sphere_t *spheres, int n_spheres, double g) {
-  const vector_t zero_vec = {0, 0, 0};
-  for (int i = 0; i < n_spheres; i++) {
-    spheres[i + n_spheres].accel = zero_vec;
+
+  cilk_for (int i = 0; i < n_spheres; ++i) {
+    update_accel_sphere(spheres, n_spheres, g, i);
   }
-  parallel_triangle(spheres, n_spheres, g, 0, n_spheres);
-  // cilk_for (int i = 0; i < n_spheres; ++i) {
-  //   update_accel_sphere(spheres, n_spheres, g, i);
-  // }
 }
 
 void update_velocities(sphere_t *spheres, int n_spheres, float t) {
