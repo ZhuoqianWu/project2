@@ -193,7 +193,7 @@ if (!bboxes) {
 }
 for (int i = 0; i < n_spheres; i++) {
     const sphere_t *s = &sorted_spheres[i];
-    float xs[13], ys[13]; // 增加到13个采样点
+    float xs[13], ys[13]; 
     int count = 0;
 
     vector_t c = s->pos;
