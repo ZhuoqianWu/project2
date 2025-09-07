@@ -8,7 +8,6 @@
 #include <stdlib.h>
 #include <string.h>
 #include <stdio.h>
-
 #include "../../common/simulate.h"
 #include "../include/misc_utils.h"
 
