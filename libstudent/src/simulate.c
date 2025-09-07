@@ -87,44 +87,6 @@ static void serial_rect(sphere_t *spheres, int n_spheres, double g,
   }
 }
 
-static void parallel_rect(sphere_t *spheres, int n_spheres, double g,
-                          int i0, int i1, int j0, int j1) {
-  const int I = i1 - i0;
-  const int J = j1 - j0;
-
-  if ((long)I * (long)J <= 2048) {
-    serial_rect(spheres, n_spheres, g, i0, i1, j0, j1);
-    return;
-  }
-  int im = i0 + I / 2;
-  int jm = j0 + J / 2;
-
-
-  cilk_spawn parallel_rect(spheres, n_spheres, g, i0, im, j0, jm);
-  parallel_rect(spheres, n_spheres, g, im, i1, jm, j1);
-  cilk_sync;
-
-  cilk_spawn parallel_rect(spheres, n_spheres, g, i0, im, jm, j1);
-  parallel_rect(spheres, n_spheres, g, im, i1, j0, jm);
-  cilk_sync;
-}
-
-
-static void parallel_triangle(sphere_t *spheres, int n_spheres, double g, int lo, int hi) {
-  const int N = hi - lo;
-  if (N <= 64) {
-    serial_triangle(spheres, n_spheres, g, lo, hi);
-    return;
-  }
-  int mid = lo + N / 2;
-
-  cilk_spawn parallel_triangle(spheres, n_spheres, g, lo, mid);
-  parallel_triangle(spheres, n_spheres, g, mid, hi);
-  cilk_sync;
-
-  parallel_rect(spheres, n_spheres, g, lo, mid, mid, hi);
-}
-
 void update_accelerations(sphere_t *spheres, int n_spheres, double g) {
 
   cilk_for (int i = 0; i < n_spheres; ++i) {
@@ -151,7 +113,7 @@ void do_ministep(sphere_t *spheres, int n_spheres, double g, float minCollisionT
   update_velocities(spheres, n_spheres, minCollisionTime);
   update_positions(spheres, n_spheres, minCollisionTime);
 
-  for (int k = 0; k < n_spheres; k++) {
+  cilk_for (int k = 0; k < n_spheres; k++) {
     spheres[k] = spheres[k + n_spheres];
   }
 
@@ -246,8 +208,8 @@ void do_timestep(simulator_state_t* state, float timeStep) {
     int indexCollider1 = -1;
     int indexCollider2 = -1;
 
-    for (int i = 0; i < state->s_spec.n_spheres; i++) {
-      for (int j = i + 1; j < state->s_spec.n_spheres; j++) {
+    cilk_for (int i = 0; i < state->s_spec.n_spheres; i++) {
+      cilk_for (int j = i + 1; j < state->s_spec.n_spheres; j++) {
         if (check_for_collision(state->spheres, i, j, &minCollisionTime)) {
           indexCollider1 = i;
           indexCollider2 = j;
