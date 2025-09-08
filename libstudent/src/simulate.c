@@ -53,39 +53,6 @@ void update_accel_sphere(sphere_t *spheres, int n_spheres, double g, int i) {
   spheres[i + n_spheres].accel = v;
 }
 
-static inline void add_interaction(sphere_t *spheres, int n_spheres, double g, int i, int j) {
-  // r_ij = pos_j - pos_i
-  vector_t r_ij = qsubtract(spheres[j].pos, spheres[i].pos);
-  double dist_sq = (double)qdot(r_ij, r_ij);
-  if (dist_sq == 0.0) return; 
-  double inv_dist_cubed = 1.0 / (sqrt(dist_sq) * dist_sq); // 1/|r|^3
-
-  float coeff_i = (float)(g * spheres[j].mass * inv_dist_cubed);
-  float coeff_j = (float)(-g * spheres[i].mass * inv_dist_cubed);
-
-  spheres[i + n_spheres].accel =
-      qadd(spheres[i + n_spheres].accel, scale(coeff_i, r_ij));
-  spheres[j + n_spheres].accel =
-      qadd(spheres[j + n_spheres].accel, scale(coeff_j, r_ij));
-}
-
-static void serial_triangle(sphere_t *spheres, int n_spheres, double g, int lo, int hi) {
-  for (int i = lo; i < hi; ++i) {
-    for (int j = i + 1; j < hi; ++j) {
-      add_interaction(spheres, n_spheres, g, i, j);
-    }
-  }
-}
-
-static void serial_rect(sphere_t *spheres, int n_spheres, double g,
-                        int i0, int i1, int j0, int j1) {
-  for (int i = i0; i < i1; ++i) {
-    for (int j = j0; j < j1; ++j) {
-      add_interaction(spheres, n_spheres, g, i, j);
-    }
-  }
-}
-
 void update_accelerations(sphere_t *spheres, int n_spheres, double g) {
 
   cilk_for (int i = 0; i < n_spheres; ++i) {
@@ -121,10 +88,8 @@ void do_ministep(sphere_t *spheres, int n_spheres, double g, float minCollisionT
   }
 
   vector_t distVec = qsubtract(spheres[i].pos, spheres[j].pos);
-  float scale1 = 2 * spheres[j].mass /
-                 (float)((double)spheres[i].mass + (double)spheres[j].mass);
-  float scale2 = 2 * spheres[i].mass /
-                 (float)((double)spheres[i].mass + (double)spheres[j].mass);
+  float scale1 = 2 * spheres[j].mass / ((float)spheres[i].mass + (float)spheres[j].mass);
+  float scale2 = 2 * spheres[i].mass / ((float)spheres[i].mass + (float)spheres[j].mass);
   float distNorm = qdot(distVec, distVec);
   vector_t velDiff = qsubtract(spheres[i].vel, spheres[j].vel);
   vector_t scaledDist = scale(qdot(velDiff, distVec) / distNorm, distVec);
@@ -199,7 +164,7 @@ int check_for_collision(sphere_t *spheres, int i, int j, float *timeToCollision)
 
 void do_timestep(simulator_state_t* state, float timeStep) {
   float timeLeft = timeStep;
-
+  int n = state->s_spec.n_spheres;
   // If collisions are getting too frequent, we cut time step early
   // This allows for smoother rendering without losing accuracy
   while (timeLeft > 0.000001) {
@@ -207,20 +172,45 @@ void do_timestep(simulator_state_t* state, float timeStep) {
     int indexCollider1 = -1;
     int indexCollider2 = -1;
 
-    cilk_for (int i = 0; i < state->s_spec.n_spheres; i++) {
-      cilk_for (int j = i + 1; j < state->s_spec.n_spheres; j++) {
-        if (check_for_collision(state->spheres, i, j, &minCollisionTime)) {
-          indexCollider1 = i;
-          indexCollider2 = j;
+    float *row_best_t = (float*)malloc(sizeof(float) * (size_t)n);
+    int   *row_best_i = (int*)malloc(sizeof(int) * (size_t)n);
+    int   *row_best_j = (int*)malloc(sizeof(int) * (size_t)n);
+    if (!row_best_t || !row_best_i || !row_best_j) {
+    
+      free(row_best_t); free(row_best_i); free(row_best_j);
+      for (int i = 0; i < n; i++) {
+        for (int j = i + 1; j < n; j++) {
+          if (check_for_collision(state->spheres, i, j, &minCollisionTime)) {
+            indexCollider1 = i;
+            indexCollider2 = j;
+          }
         }
       }
-    }
-
-    do_ministep(state->spheres, state->s_spec.n_spheres, state->s_spec.g, minCollisionTime, indexCollider1, indexCollider2);
-
-    timeLeft = timeLeft - minCollisionTime;
+    } else {
+   
+      cilk_for (int i = 0; i < n; ++i) {
+        float localMin = timeLeft;
+        float tbest = INFINITY;
+        int ibest = -1, jbest = -1;
+        for (int j = i + 1; j < n; ++j) {
+          float t = localMin;
+          if (check_for_collision(state->spheres, i, j, &t)) {
+    
+            if (t < localMin) localMin = t;
+            if (t < tbest || (t == tbest)) {
+              tbest = t; ibest = i; jbest = j;
+            }
+          }
+        }
+        row_best_t[i] = tbest;
+        row_best_i[i] = ibest;
+        row_best_j[i] = jbest;
+      }
+      //处理 row_best
   }
 }
+}
+
 
 sphere_t* simulate(simulator_state_t* state) {
   int n_spheres = state->s_spec.n_spheres;
