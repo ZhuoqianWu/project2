@@ -20,31 +20,30 @@ typedef struct renderer_state {
   float *img;
 } renderer_state_t;
 
-struct renderer_state* init_renderer(const renderer_spec_t *spec) {
+renderer_state_t* init_renderer(const renderer_spec_t *spec) {
   renderer_state_t *state = (renderer_state_t*)malloc(sizeof(renderer_state_t));
   state->r_spec = *spec;
   int n_pixels = state->r_spec.resolution * state->r_spec.resolution;
-  state->img = calloc(3ull * (size_t)n_pixels, sizeof(float));
+  state->img = calloc(3ull * (size_t) n_pixels, sizeof(float));
   assert(state->img != NULL);
-  return (struct renderer_state*)state;
+  return state;
 }
 
-void destroy_renderer(struct renderer_state *state) {
-  renderer_state_t *rs = (renderer_state_t*)state;
-  free(rs->img);
-  free(rs);
+void destroy_renderer(renderer_state_t *state) {
+  free(state->img);
+  free(state);
 }
 
 // Computes the ray from a given origin (usually the eye location) to the pixel (x, y)
 // in image coordinates.
-static ray_t origin_to_pixel(renderer_state_t *state, int x, int y) {
+ray_t origin_to_pixel(renderer_state_t *state, int x, int y) {
   ray_t viewingRay;
 
   const float pixel_size = state->r_spec.viewport_size / state->r_spec.resolution;
   
   // Center image frame
-  float us = -state->r_spec.resolution / 2.0f + x;
-  float vs = -state->r_spec.resolution / 2.0f + y;
+  float us = -state->r_spec.resolution / 2 + x;
+  float vs = -state->r_spec.resolution / 2 + y;
 
   viewingRay.origin = state->r_spec.eye;
   viewingRay.dir =
@@ -107,11 +106,9 @@ int ray_sphere_intersection(ray_t *r, const sphere_t* s, float *out) {
 
 
 void set_pixel(renderer_state_t *state, int x, int y, float red, float green, float blue) {
-    renderer_state_t *rs = (renderer_state_t*)state;
-    int index = (x + y * rs->r_spec.resolution) * 3;
-    state->img[index + 0] = min((float)red, 1.0);
-    state->img[index + 1] = min((float)green, 1.0);
-    state->img[index + 2] = min((float)blue, 1.0);
+  state->img[(x + y * state->r_spec.resolution) * 3 + 0] = min((float)red, 1.0);
+  state->img[(x + y * state->r_spec.resolution) * 3 + 1] = min((float)green, 1.0);
+  state->img[(x + y * state->r_spec.resolution) * 3 + 2] = min((float)blue, 1.0);
 }
 
 static inline vector_t vcross(vector_t a, vector_t b) {
@@ -167,25 +164,46 @@ static int sphere_depth_cmp(const void *pa, const void *pb) {
 
 
 const float* render(renderer_state_t *state, const sphere_t *spheres, int n_spheres) {
-    renderer_state_t *rs = (renderer_state_t*)state;
-    const renderer_spec_t *spec = &rs->r_spec;
-    const int resolution = spec->resolution;
-    const int n_pixels = resolution * resolution;
+  sphere_t *sorted_spheres = (sphere_t*)malloc(sizeof(sphere_t) * (size_t)n_spheres);
+  if (!sorted_spheres) { free(z_buffer); return rs->img; }
+  memcpy(sorted_spheres, spheres, sizeof(sphere_t) * (size_t)n_spheres);
+  g_eye_for_sort = spec->eye;
+  qsort(sorted_spheres, (size_t)n_spheres, sizeof(sphere_t), sphere_depth_cmp);
+  ray_t r;
 
-    memset(rs->img, 0, sizeof(float) * 3 * (size_t)n_pixels);
-    float *z_buffer = (float*)malloc(sizeof(float) * (size_t)n_pixels);
-    if (!z_buffer) return rs->img;
-    for (int i = 0; i < n_pixels; i++) {
-        z_buffer[i] = INFINITY;
-    }
+  for (int y = 0; y < state->r_spec.resolution; y++) {
+    for (int x = 0; x < state->r_spec.resolution; x++) {
+      r = origin_to_pixel(state, x, y);
 
-    sphere_t *sorted_spheres = (sphere_t*)malloc(sizeof(sphere_t) * (size_t)n_spheres);
-    if (!sorted_spheres) { free(z_buffer); return rs->img; }
-    memcpy(sorted_spheres, spheres, sizeof(sphere_t) * (size_t)n_spheres);
-    g_eye_for_sort = spec->eye;
-    qsort(sorted_spheres, (size_t)n_spheres, sizeof(sphere_t), sphere_depth_cmp);
-  
+      // Finds the first ray-sphere intersection.
+      // Since spheres are sorted, the first intersection will also
+      // be the closest intersection.
+      float t = INFINITY;
+      int currentSphere = -1;
 
+      for (int i = 0; i < n_spheres; i++) {
+        if (ray_sphere_intersection(&r, &sorted_spheres[i], &t)) {
+          currentSphere = i;
+          break;
+        }
+      }
+
+      // If ray does not intersect any sphere, color the pixel black
+      if (currentSphere == -1) {
+        set_pixel(state, x, y, 0, 0, 0);
+        continue;
+      }
+
+      material_t currentMat = sorted_spheres[currentSphere].mat;
+
+      vector_t intersection = qadd(r.origin, scale(t, r.dir));
+
+      // Normal vector at intersection point, perpendicular to the surface
+      // of the sphere
+      vector_t normal = qsubtract(intersection, sorted_spheres[currentSphere].pos);
+      float n_size = qsize(normal);
+      // Note: n_size should be the radius of the sphere, which is nonzero.
+      normal = scale(1 / n_size, normal);
 
       double red = 0;
       double green = 0;
@@ -212,7 +230,8 @@ const float* render(renderer_state_t *state, const sphere_t *spheres, int n_sphe
       }
 
       set_pixel(state, x, y, red, green, blue);
-      
+    }
+  }
   free(sorted_spheres);
   return state->img;
 }
