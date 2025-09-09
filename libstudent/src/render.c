@@ -64,80 +64,80 @@ static ray_t origin_to_pixel(renderer_state_t *state, int x, int y) {
 // 
 // If the ray and the sphere intersect, writes the distance to the closer intersection
 // to `out`, and returns 1. Otherwise, returns 0.
-// int ray_sphere_intersection(ray_t *r, const sphere_t* s, float *out) {
-//   vector_t dist = qsubtract(r->origin, s->pos);
-//   // Uses quadratic formula to compute intersection
-//   float a = qdot(r->dir, r->dir);
-//   float b = 2 * qdot(r->dir, dist);
-//   float c = (float)((double)qdot(dist, dist) - (double)(s->r * s->r));
-//   float discr = (float)((double)(b * b) - (double)(4 * a * c));
-
-//   if (discr >= 0) {
-//     // Ray hits sphere
-//     float sqrtdiscr = sqrtf(discr);
-
-//     float min_dist;
-//     if (b >= 0) {
-//       float sol1 = (float)((double)-b - (double)sqrtdiscr) / (2 * a);
-//       float sol2 = (float)(2 * (double)c) / ((double)-b - (double)sqrtdiscr);
-//       min_dist = min(sol1, sol2);
-//     } else {
-//       float sol1 = (float)(2 * (double)c) / ((double)-b + (double)sqrtdiscr);
-//       float sol2 = (float)((double)-b + (double)sqrtdiscr) / (2 * a);
-//       min_dist = min(sol1, sol2);
-//     }
-
-//     // If new_t > 0 and smaller than original t, we
-//     // found a new, closer ray-sphere intersection
-//     if (min_dist > 0) {
-//       *out = min_dist;
-//       return 1;
-//     }
-//   }
-
-//   return 0;
-// }
-
 int ray_sphere_intersection(ray_t *r, const sphere_t* s, float *out) {
-    vector_t dist = qsubtract(r->origin, s->pos);
-    float a = qdot(r->dir, r->dir);
-    float b = 2.0f * qdot(r->dir, dist);
-    float c = (float)((double)qdot(dist, dist) - (double)(s->r * s->r));
-    
-    // 计算判别式
-    float discr = (float)((double)(b * b) - double(4 * a * c));
-    if (discr < 0) {
-        return 0; // 无相交
-    }
-    
+  vector_t dist = qsubtract(r->origin, s->pos);
+  // Uses quadratic formula to compute intersection
+  float a = qdot(r->dir, r->dir);
+  float b = 2 * qdot(r->dir, dist);
+  float c = (float)((double)qdot(dist, dist) - (double)(s->r * s->r));
+  float discr = (float)((double)(b * b) - (double)(4 * a * c));
+
+  if (discr >= 0) {
+    // Ray hits sphere
     float sqrtdiscr = sqrtf(discr);
-    float q;
-    if (b < 0) {
-        q = -0.5f * (b - sqrtdiscr);
+
+    float min_dist;
+    if (b >= 0) {
+      float sol1 = (float)((double)-b - (double)sqrtdiscr) / (2 * a);
+      float sol2 = (float)(2 * (double)c) / ((double)-b - (double)sqrtdiscr);
+      min_dist = min(sol1, sol2);
     } else {
-        q = -0.5f * (b + sqrtdiscr);
+      float sol1 = (float)(2 * (double)c) / ((double)-b + (double)sqrtdiscr);
+      float sol2 = (float)((double)-b + (double)sqrtdiscr) / (2 * a);
+      min_dist = min(sol1, sol2);
     }
-    
-    // 计算两个可能的解
-    float t1 = q / a;
-    float t2 = c / q;
-    
-    // 确保t1 <= t2
-    if (t1 > t2) {
-        float temp = t1;
-        t1 = t2;
-        t2 = temp;
+
+    // If new_t > 0 and smaller than original t, we
+    // found a new, closer ray-sphere intersection
+    if (min_dist > 0) {
+      *out = min_dist;
+      return 1;
     }
-    
-    // 寻找最小正解
-    float min_dist = t1 > 0 ? t1 : t2;
-    if (min_dist <= 0) {
-        return 0; // 解无效（负值或零）
-    }
-    
-    *out = min_dist;
-    return 1;
+  }
+
+  return 0;
 }
+
+// int ray_sphere_intersection(ray_t *r, const sphere_t* s, float *out) {
+//     vector_t dist = qsubtract(r->origin, s->pos);
+//     float a = qdot(r->dir, r->dir);
+//     float b = 2.0f * qdot(r->dir, dist);
+//     float c = (float)((double)qdot(dist, dist) - (double)(s->r * s->r));
+    
+//     // 计算判别式
+//     float discr = (float)((double)(b * b) - double(4 * a * c));
+//     if (discr < 0) {
+//         return 0; // 无相交
+//     }
+    
+//     float sqrtdiscr = sqrtf(discr);
+//     float q;
+//     if (b < 0) {
+//         q = -0.5f * (b - sqrtdiscr);
+//     } else {
+//         q = -0.5f * (b + sqrtdiscr);
+//     }
+    
+//     // 计算两个可能的解
+//     float t1 = q / a;
+//     float t2 = c / q;
+    
+//     // 确保t1 <= t2
+//     if (t1 > t2) {
+//         float temp = t1;
+//         t1 = t2;
+//         t2 = temp;
+//     }
+    
+//     // 寻找最小正解
+//     float min_dist = t1 > 0 ? t1 : t2;
+//     if (min_dist <= 0) {
+//         return 0; // 解无效（负值或零）
+//     }
+    
+//     *out = min_dist;
+//     return 1;
+// }
 
 // Sorts given spheres by length of the tangent (NOT in-place). 
 // Returns a pointer to the sorted spheres. Returned pointer must be freed.
@@ -264,16 +264,34 @@ const float* render(struct renderer_state *state, const sphere_t *spheres, int n
 
     for (int i = 0; i < n_spheres; i++) {
         const sphere_t *s = &sorted_spheres[i];
-
-        float xs[5], ys[5];
+        float xs[9], ys[9]; 
         int count = 0;
         vector_t c = s->pos;
-        vector_t p[5];
+        vector_t p[9];
         p[0] = c;
         p[1] = qadd(c, scale(s->r, ctx.u_hat));
         p[2] = qsubtract(c, scale(s->r, ctx.u_hat));
         p[3] = qadd(c, scale(s->r, ctx.v_hat));
         p[4] = qsubtract(c, scale(s->r, ctx.v_hat));
+        vector_t diag1_dir = qadd(ctx.u_hat, ctx.v_hat);
+        float diag1_len = qsize(diag1_dir);
+        if (diag1_len > 0) {
+            vector_t diag1_norm = scale(1.0f / diag1_len, diag1_dir);
+            p[5] = qadd(c, scale(s->r, diag1_norm));
+            p[6] = qsubtract(c, scale(s->r, diag1_norm));
+        } else {
+            p[5] = p[1]; p[6] = p[2];
+        }
+        
+        vector_t diag2_dir = qsubtract(ctx.u_hat, ctx.v_hat);
+        float diag2_len = qsize(diag2_dir);
+        if (diag2_len > 0) {
+            vector_t diag2_norm = scale(1.0f / diag2_len, diag2_dir);
+            p[7] = qadd(c, scale(s->r, diag2_norm));
+            p[8] = qsubtract(c, scale(s->r, diag2_norm));
+        } else {
+            p[7] = p[1]; p[8] = p[2];
+        }
         for (int k = 0; k < 5; k++) {
             float xx, yy;
             if (project_point_to_pixel(&ctx, p[k], &xx, &yy)) {
