@@ -206,8 +206,26 @@ void do_timestep(simulator_state_t* state, float timeStep) {
         row_best_i[i] = ibest;
         row_best_j[i] = jbest;
       }
-      //处理 row_best
+            for (int i = 0; i < n; ++i) {
+        int ib = row_best_i[i], jb = row_best_j[i];
+        if (ib < 0) continue;
+        float tb = row_best_t[i];
+        
+        if (tb < minCollisionTime ||
+            (tb == minCollisionTime &&
+             (ib > indexCollider1 || (ib == indexCollider1 && jb > indexCollider2)))) {
+          minCollisionTime = tb;
+          indexCollider1 = ib;
+          indexCollider2 = jb;
+        }
+      }
+
+      free(row_best_t);
+      free(row_best_i);
+      free(row_best_j);
   }
+    do_ministep(state->spheres, n, state->s_spec.g, minCollisionTime, indexCollider1, indexCollider2);
+    timeLeft -= minCollisionTime;
 }
 }
 
