@@ -264,10 +264,10 @@ const float* render(struct renderer_state *state, const sphere_t *spheres, int n
 
     for (int i = 0; i < n_spheres; i++) {
         const sphere_t *s = &sorted_spheres[i];
-        float xs[9], ys[9]; 
+        float xs[13], ys[13]; 
         int count = 0;
         vector_t c = s->pos;
-        vector_t p[9];
+        vector_t p[13];
         p[0] = c;
         p[1] = qadd(c, scale(s->r, ctx.u_hat));
         p[2] = qsubtract(c, scale(s->r, ctx.u_hat));
@@ -292,6 +292,18 @@ const float* render(struct renderer_state *state, const sphere_t *spheres, int n
         } else {
             p[7] = p[1]; p[8] = p[2];
         }
+            p[9] = qadd(c, scale(s->r, ctx.n));
+    p[10] = qsubtract(c, scale(s->r, ctx.n));
+    
+    vector_t extra_dir = qadd(ctx.u_hat, ctx.n);
+    float extra_len = qsize(extra_dir);
+    if (extra_len > 0) {
+        vector_t extra_norm = scale(1.0f / extra_len, extra_dir);
+        p[11] = qadd(c, scale(s->r, extra_norm));
+        p[12] = qsubtract(c, scale(s->r, extra_norm));
+    } else {
+        p[11] = p[1]; p[12] = p[2];
+    }
         for (int k = 0; k < 5; k++) {
             float xx, yy;
             if (project_point_to_pixel(&ctx, p[k], &xx, &yy)) {
@@ -316,11 +328,22 @@ const float* render(struct renderer_state *state, const sphere_t *spheres, int n
         int x1 = (int)ceilf(max_x) + padding;
         int y0 = (int)floorf(min_y) - padding;
         int y1 = (int)ceilf(max_y) + padding;
-        if (x1 < 0 || x0 >= resolution || y1 < 0 || y0 >= resolution) continue;
-        if (x0 < 0) x0 = 0;
-        if (y0 < 0) y0 = 0;
-        if (x1 >= resolution) x1 = resolution - 1;
-        if (y1 >= resolution) y1 = resolution - 1;
+        if (x1 < 0 || x0 >= resolution || y1 < 0 || y0 >= resolution) {
+            bboxes[i].valid = 0;
+            continue;
+        }
+
+        x0 = max(x0, 0);
+        y0 = max(y0, 0);
+        x1 = min(x1, resolution - 1);
+        y1 = min(y1, resolution - 1);
+
+        bboxes[i].x0 = x0;
+        bboxes[i].y0 = y0;
+        bboxes[i].x1 = x1;
+        bboxes[i].y1 = y1;
+        bboxes[i].valid = 1;
+    }
 
         for (int y = y0; y <= y1; y++) {
             for (int x = x0; x <= x1; x++) {
