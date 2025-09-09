@@ -64,38 +64,79 @@ static ray_t origin_to_pixel(renderer_state_t *state, int x, int y) {
 // 
 // If the ray and the sphere intersect, writes the distance to the closer intersection
 // to `out`, and returns 1. Otherwise, returns 0.
+// int ray_sphere_intersection(ray_t *r, const sphere_t* s, float *out) {
+//   vector_t dist = qsubtract(r->origin, s->pos);
+//   // Uses quadratic formula to compute intersection
+//   float a = qdot(r->dir, r->dir);
+//   float b = 2 * qdot(r->dir, dist);
+//   float c = (float)((double)qdot(dist, dist) - (double)(s->r * s->r));
+//   float discr = (float)((double)(b * b) - (double)(4 * a * c));
+
+//   if (discr >= 0) {
+//     // Ray hits sphere
+//     float sqrtdiscr = sqrtf(discr);
+
+//     float min_dist;
+//     if (b >= 0) {
+//       float sol1 = (float)((double)-b - (double)sqrtdiscr) / (2 * a);
+//       float sol2 = (float)(2 * (double)c) / ((double)-b - (double)sqrtdiscr);
+//       min_dist = min(sol1, sol2);
+//     } else {
+//       float sol1 = (float)(2 * (double)c) / ((double)-b + (double)sqrtdiscr);
+//       float sol2 = (float)((double)-b + (double)sqrtdiscr) / (2 * a);
+//       min_dist = min(sol1, sol2);
+//     }
+
+//     // If new_t > 0 and smaller than original t, we
+//     // found a new, closer ray-sphere intersection
+//     if (min_dist > 0) {
+//       *out = min_dist;
+//       return 1;
+//     }
+//   }
+
+//   return 0;
+// }
+
 int ray_sphere_intersection(ray_t *r, const sphere_t* s, float *out) {
-  vector_t dist = qsubtract(r->origin, s->pos);
-  // Uses quadratic formula to compute intersection
-  float a = qdot(r->dir, r->dir);
-  float b = 2 * qdot(r->dir, dist);
-  float c = (float)((double)qdot(dist, dist) - (double)(s->r * s->r));
-  float discr = (float)((double)(b * b) - (double)(4 * a * c));
-
-  if (discr >= 0) {
-    // Ray hits sphere
+    vector_t dist = qsubtract(r->origin, s->pos);
+    float a = qdot(r->dir, r->dir);
+    float b = 2.0f * qdot(r->dir, dist);
+    float c = (float)((double)qdot(dist, dist) - (double)(s->r * s->r));
+    
+    // 计算判别式
+    float discr = (float)((double)(b * b) - double(4 * a * c));
+    if (discr < 0) {
+        return 0; // 无相交
+    }
+    
     float sqrtdiscr = sqrtf(discr);
-
-    float min_dist;
-    if (b >= 0) {
-      float sol1 = (float)((double)-b - (double)sqrtdiscr) / (2 * a);
-      float sol2 = (float)(2 * (double)c) / ((double)-b - (double)sqrtdiscr);
-      min_dist = min(sol1, sol2);
+    float q;
+    if (b < 0) {
+        q = -0.5f * (b - sqrtdiscr);
     } else {
-      float sol1 = (float)(2 * (double)c) / ((double)-b + (double)sqrtdiscr);
-      float sol2 = (float)((double)-b + (double)sqrtdiscr) / (2 * a);
-      min_dist = min(sol1, sol2);
+        q = -0.5f * (b + sqrtdiscr);
     }
-
-    // If new_t > 0 and smaller than original t, we
-    // found a new, closer ray-sphere intersection
-    if (min_dist > 0) {
-      *out = min_dist;
-      return 1;
+    
+    // 计算两个可能的解
+    float t1 = q / a;
+    float t2 = c / q;
+    
+    // 确保t1 <= t2
+    if (t1 > t2) {
+        float temp = t1;
+        t1 = t2;
+        t2 = temp;
     }
-  }
-
-  return 0;
+    
+    // 寻找最小正解
+    float min_dist = t1 > 0 ? t1 : t2;
+    if (min_dist <= 0) {
+        return 0; // 解无效（负值或零）
+    }
+    
+    *out = min_dist;
+    return 1;
 }
 
 // Sorts given spheres by length of the tangent (NOT in-place). 
@@ -166,7 +207,7 @@ static int sphere_depth_cmp(const void *pa, const void *pb) {
 
 
 
-const float* render(renderer_state_t *state, const sphere_t *spheres, int n_spheres) {
+const float* render(struct renderer_state *state, const sphere_t *spheres, int n_spheres) {
     renderer_state_t *rs = (renderer_state_t*)state;
     const renderer_spec_t *spec = &rs->r_spec;
     const int resolution = spec->resolution;
@@ -221,7 +262,6 @@ const float* render(renderer_state_t *state, const sphere_t *spheres, int n_sphe
     ctx.pixel_size = spec->viewport_size / (float)resolution;
     ctx.resolution = resolution;
 
-    
     for (int i = 0; i < n_spheres; i++) {
         const sphere_t *s = &sorted_spheres[i];
 
@@ -263,41 +303,44 @@ const float* render(renderer_state_t *state, const sphere_t *spheres, int n_sphe
         if (y0 < 0) y0 = 0;
         if (x1 >= resolution) x1 = resolution - 1;
         if (y1 >= resolution) y1 = resolution - 1;
+
         for (int y = y0; y <= y1; y++) {
             for (int x = x0; x <= x1; x++) {
                 ray_t r = origin_to_pixel(rs, x, y);
                 float t;
                 if (!ray_sphere_intersection(&r, s, &t)) continue;
                 int idx = x + y * resolution;
-                if (t >= z_buffer[idx]) continue; 
-                z_buffer[idx] = t;}}}
-      double red = 0;
-      double green = 0;
-      double blue = 0;
+                if (t >= z_buffer[idx]) continue;
+                z_buffer[idx] = t;
 
-      for (int j = 0; j < state->r_spec.n_lights; j++) {
-        light_t currentLight = state->r_spec.lights[j];
-        vector_t intersection_to_light = qsubtract(currentLight.pos, intersection);
-        if (qdot(normal, intersection_to_light) <= 0)
-          continue;
+                material_t currentMat = s->mat;
+                vector_t intersection = qadd(r.origin, scale(t, r.dir));
+                vector_t normal = qsubtract(intersection, s->pos);
+                float n_size = qsize(normal);
+                if (n_size == 0.0f) continue;
+                normal = scale(1.0f / n_size, normal);
 
-        ray_t lightRay;
-        lightRay.origin = intersection;
-        lightRay.dir = scale(1 / qsize(intersection_to_light), intersection_to_light);
-
-        // Calculate Lambert diffusion
-        float lambert = qdot(lightRay.dir, normal);
-        red += (double)(currentLight.intensity.red * currentMat.diffuse.red *
-                        lambert);
-        green += (double)(currentLight.intensity.green *
-                          currentMat.diffuse.green * lambert);
-        blue += (double)(currentLight.intensity.blue * currentMat.diffuse.blue *
-                         lambert);
-      }
-
-      set_pixel(state, x, y, red, green, blue);
-    
-  
+                double red = 0.0, green = 0.0, blue = 0.0;
+                for (int j = 0; j < spec->n_lights; j++) {
+                    light_t currentLight = spec->lights[j];
+                    vector_t intersection_to_light = qsubtract(currentLight.pos, intersection);
+                    if (qdot(normal, intersection_to_light) <= 0.0f) continue;
+                    ray_t lightRay;
+                    lightRay.origin = intersection;
+                    float itl_size = qsize(intersection_to_light);
+                    if (itl_size == 0.0f) continue;
+                    lightRay.dir = scale(1.0f / itl_size, intersection_to_light);
+                    float lambert = qdot(lightRay.dir, normal);
+                    red   += (double)(currentLight.intensity.red   * currentMat.diffuse.red   * lambert);
+                    green += (double)(currentLight.intensity.green * currentMat.diffuse.green * lambert);
+                    blue  += (double)(currentLight.intensity.blue  * currentMat.diffuse.blue  * lambert);
+                }
+                set_pixel(state, x, y, (float)red, (float)green, (float)blue);
+            }
+        }
+    }
+  free(z_buffer);
   free(sorted_spheres);
-  return state->img;
+  return rs->img;
 }
+
