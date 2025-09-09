@@ -323,7 +323,20 @@ const float* render(struct renderer_state *state, const sphere_t *spheres, int n
             if (ys[k] > max_y) max_y = ys[k];
         }
         
-        const int padding = 2;
+        float distance_to_camera = qsize(qsubtract(s->pos, ctx.eye));
+        float projected_radius = (s->r / fmaxf(distance_to_camera, 1e-8f)) * resolution;
+      
+        int scene_density_factor = (n_spheres > 200) ? 2 : 1;
+        const int base_padding = (int)fmaxf(5 * scene_density_factor, 
+                                        fminf(10 * scene_density_factor, 
+                                                projected_radius * 0.15f * scene_density_factor));
+      
+        float width = max_x - min_x;
+        float height = max_y - min_y;
+        min_x -= width * 0.04f;
+        max_x += width * 0.04f;
+        min_y -= height * 0.04f;
+        max_y += height * 0.04f;
         int x0 = (int)floorf(min_x) - padding;
         int x1 = (int)ceilf(max_x) + padding;
         int y0 = (int)floorf(min_y) - padding;
