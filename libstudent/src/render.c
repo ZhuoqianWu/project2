@@ -358,17 +358,86 @@ const float* render(struct renderer_state *state, const sphere_t *spheres, int n
         bboxes[i].valid = 1;
     }
 
-        for (int y = y0; y <= y1; y++) {
-            for (int x = x0; x <= x1; x++) {
-                ray_t r = origin_to_pixel(rs, x, y);
-                float t;
-                if (!ray_sphere_intersection(&r, s, &t)) continue;
-                int idx = x + y * resolution;
-                if (t >= z_buffer[idx]) continue;
-                z_buffer[idx] = t;
+    const int TS = 32; 
+    const int n_tx = (resolution + TS - 1) / TS;
+    const int n_ty = (resolution + TS - 1) / TS;
+    const int n_tiles = n_tx * n_ty;
 
-                material_t currentMat = s->mat;
-                vector_t intersection = qadd(r.origin, scale(t, r.dir));
+    for (int tid = 0; tid < n_tiles; ++tid) {
+        int ty = tid / n_tx;
+        int tx = tid % n_tx;
+        int x_tile0 = tx * TS;
+        int y_tile0 = ty * TS;
+        int x_tile1 = x_tile0 + TS - 1; if (x_tile1 >= resolution) x_tile1 = resolution - 1;
+        int y_tile1 = y_tile0 + TS - 1; if (y_tile1 >= resolution) y_tile1 = resolution - 1;
+
+        const int tw = x_tile1 - x_tile0 + 1;
+        const int th = y_tile1 - y_tile0 + 1;
+
+
+        const int TW = TS; 
+        float *best_t = (float*)malloc(sizeof(float) * TS * TS);
+        int   *best_i = (int*)malloc(sizeof(int) * TS * TS);
+        ray_t *rays = (ray_t*)malloc(sizeof(ray_t) * TS * TS);
+        if (!best_t || !best_i || !rays) {
+            free(best_t);
+            free(best_i);
+            free(rays);
+            continue; 
+        }
+
+        
+        for (int ly = 0; ly < th; ++ly) {
+            for (int lx = 0; lx < tw; ++lx) {
+                int local_idx = ly * TW + lx;
+                best_t[local_idx] = INFINITY;
+                best_i[local_idx] = -1;
+                int x = x_tile0 + lx;
+                int y = y_tile0 + ly;
+                rays[local_idx] = origin_to_pixel(rs, x, y);
+            }
+        }
+
+  
+        for (int i = 0; i < n_spheres; i++) {
+            if (!bboxes[i].valid) continue;
+
+            int x0 = bboxes[i].x0 > x_tile0 ? bboxes[i].x0 : x_tile0;
+            int y0 = bboxes[i].y0 > y_tile0 ? bboxes[i].y0 : y_tile0;
+            int x1 = bboxes[i].x1 < x_tile1 ? bboxes[i].x1 : x_tile1;
+            int y1 = bboxes[i].y1 < y_tile1 ? bboxes[i].y1 : y_tile1;
+            if (x0 > x1 || y0 > y1) continue;
+
+            const sphere_t *s = &sorted_spheres[i];
+
+            for (int y = y0; y <= y1; y++) {
+                const int ly = y - y_tile0;
+                for (int x = x0; x <= x1; x++) {
+                    const int lx = x - x_tile0;
+                    const int local_idx = ly * TW + lx;
+
+                    ray_t *r = &rays[local_idx];
+                    float t;
+                    if (!ray_sphere_intersection(r, s, &t)) continue;
+
+                    if (t < best_t[local_idx]) {
+                        best_t[local_idx] = t;
+                        best_i[local_idx] = i;
+                    }
+                }
+            }
+        }
+        for(int ly =0; ly<th;++ly){
+            for (int lx = 0; lx < tw; ++lx) {
+                const int local_idx = ly * TW + lx;
+                const int i = best_i[local_idx];
+                if (i < 0) continue;
+
+                const sphere_t *s = &sorted_spheres[i];
+                ray_t *r = &rays[local_idx];
+                const float t = best_t[local_idx];
+
+                vector_t intersection = qadd(r->origin, scale(t, r->dir));
                 vector_t normal = qsubtract(intersection, s->pos);
                 float n_size = qsize(normal);
                 if (n_size == 0.0f) continue;
@@ -376,22 +445,28 @@ const float* render(struct renderer_state *state, const sphere_t *spheres, int n
 
                 double red = 0.0, green = 0.0, blue = 0.0;
                 for (int j = 0; j < spec->n_lights; j++) {
-                    light_t currentLight = spec->lights[j];
-                    vector_t intersection_to_light = qsubtract(currentLight.pos, intersection);
-                    if (qdot(normal, intersection_to_light) <= 0.0f) continue;
-                    ray_t lightRay;
-                    lightRay.origin = intersection;
-                    float itl_size = qsize(intersection_to_light);
+                    light_t L = spec->lights[j];
+                    vector_t itl = qsubtract(L.pos, intersection);
+                    if (qdot(normal, itl) <= 0.0f) continue;
+                    float itl_size = qsize(itl);
                     if (itl_size == 0.0f) continue;
-                    lightRay.dir = scale(1.0f / itl_size, intersection_to_light);
-                    float lambert = qdot(lightRay.dir, normal);
-                    red   += (double)(currentLight.intensity.red   * currentMat.diffuse.red   * lambert);
-                    green += (double)(currentLight.intensity.green * currentMat.diffuse.green * lambert);
-                    blue  += (double)(currentLight.intensity.blue  * currentMat.diffuse.blue  * lambert);
+                    vector_t light_dir = scale(1.0f / itl_size, itl);
+                    float lambert = qdot(light_dir, normal);
+                    red   += (double)(L.intensity.red   * s->mat.diffuse.red   * lambert);
+                    green += (double)(L.intensity.green * s->mat.diffuse.green * lambert);
+                    blue  += (double)(L.intensity.blue  * s->mat.diffuse.blue  * lambert);
                 }
+
+                int x = x_tile0 + lx;
+                int y = y_tile0 + ly;
                 set_pixel(state, x, y, (float)red, (float)green, (float)blue);
             }
         }
+
+        // 释放动态分配的内存
+        free(best_t);
+        free(best_i);
+        free(rays);
     }
   free(z_buffer);
   free(sorted_spheres);
