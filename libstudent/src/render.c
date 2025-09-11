@@ -363,7 +363,7 @@ const float* render(struct renderer_state *state, const sphere_t *spheres, int n
     const int n_ty = (resolution + TS - 1) / TS;
     const int n_tiles = n_tx * n_ty;
 
-    for (int tid = 0; tid < n_tiles; ++tid) {
+    cilk_for (int tid = 0; tid < n_tiles; ++tid) {
         int ty = tid / n_tx;
         int tx = tid % n_tx;
         int x_tile0 = tx * TS;
@@ -399,7 +399,7 @@ const float* render(struct renderer_state *state, const sphere_t *spheres, int n
         }
 
   
-        for (int i = 0; i < n_spheres; i++) {
+        cilk_for (int i = 0; i < n_spheres; i++) {
             if (!bboxes[i].valid) continue;
 
             int x0 = bboxes[i].x0 > x_tile0 ? bboxes[i].x0 : x_tile0;
@@ -444,7 +444,7 @@ const float* render(struct renderer_state *state, const sphere_t *spheres, int n
                 normal = scale(1.0f / n_size, normal);
 
                 double red = 0.0, green = 0.0, blue = 0.0;
-                for (int j = 0; j < spec->n_lights; j++) {
+                cilk_for (int j = 0; j < spec->n_lights; j++) {
                     light_t L = spec->lights[j];
                     vector_t itl = qsubtract(L.pos, intersection);
                     if (qdot(normal, itl) <= 0.0f) continue;
