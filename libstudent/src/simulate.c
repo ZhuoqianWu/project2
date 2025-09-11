@@ -54,6 +54,74 @@ void update_accel_sphere(sphere_t *spheres, int n_spheres, double g, int i) {
   spheres[i + n_spheres].accel = v;
 }
 
+static inline void add_interaction(sphere_t *spheres, int n_spheres, double g, int i, int j) {
+  // r_ij = pos_j - pos_i
+  vector_t r_ij = qsubtract(spheres[j].pos, spheres[i].pos);
+  double dist_sq = (double)qdot(r_ij, r_ij);
+  if (dist_sq == 0.0) return; 
+  double inv_dist_cubed = 1.0 / (sqrt(dist_sq) * dist_sq); 
+
+  float coeff_i = (float)(g * spheres[j].mass * inv_dist_cubed);
+  float coeff_j = (float)(-g * spheres[i].mass * inv_dist_cubed);
+
+  spheres[i + n_spheres].accel =
+      qadd(spheres[i + n_spheres].accel, scale(coeff_i, r_ij));
+  spheres[j + n_spheres].accel =
+      qadd(spheres[j + n_spheres].accel, scale(coeff_j, r_ij));
+}
+static void serial_triangle(sphere_t *spheres, int n_spheres, double g, int lo, int hi) {
+  for (int i = lo; i < hi; ++i) {
+    for (int j = i + 1; j < hi; ++j) {
+      add_interaction(spheres, n_spheres, g, i, j);
+    }
+  }
+}
+
+static void serial_rect(sphere_t *spheres, int n_spheres, double g,
+                        int i0, int i1, int j0, int j1) {
+  for (int i = i0; i < i1; ++i) {
+    for (int j = j0; j < j1; ++j) {
+      add_interaction(spheres, n_spheres, g, i, j);
+    }
+  }
+}
+
+static void parallel_rect(sphere_t *spheres, int n_spheres, double g,
+                          int i0, int i1, int j0, int j1) {
+  const int I = i1 - i0;
+  const int J = j1 - j0;
+
+  if ((long)I * (long)J <= 2048) {
+    serial_rect(spheres, n_spheres, g, i0, i1, j0, j1);
+    return;
+  }
+  int im = i0 + I / 2;
+  int jm = j0 + J / 2;
+
+
+  parallel_rect(spheres, n_spheres, g, i0, im, j0, jm);
+  parallel_rect(spheres, n_spheres, g, im, i1, jm, j1);
+  
+
+  parallel_rect(spheres, n_spheres, g, i0, im, jm, j1);
+  parallel_rect(spheres, n_spheres, g, im, i1, j0, jm);
+}
+
+
+static void parallel_triangle(sphere_t *spheres, int n_spheres, double g, int lo, int hi) {
+  const int N = hi - lo;
+  if (N <= 64) {
+    serial_triangle(spheres, n_spheres, g, lo, hi);
+    return;
+  }
+  int mid = lo + N / 2;
+
+  parallel_triangle(spheres, n_spheres, g, lo, mid);
+  parallel_triangle(spheres, n_spheres, g, mid, hi);
+
+  parallel_rect(spheres, n_spheres, g, lo, mid, mid, hi);
+}
+
 void update_accelerations(sphere_t *spheres, int n_spheres, double g) {
   cilk_for (int i = 0; i < n_spheres; i++) {
     update_accel_sphere(spheres, n_spheres, g, i);
