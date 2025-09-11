@@ -8,6 +8,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <stdio.h>
+
 #include "../../common/simulate.h"
 #include "../include/misc_utils.h"
 
@@ -54,20 +55,19 @@ void update_accel_sphere(sphere_t *spheres, int n_spheres, double g, int i) {
 }
 
 void update_accelerations(sphere_t *spheres, int n_spheres, double g) {
-
-  cilk_for (int i = 0; i < n_spheres; ++i) {
+  cilk_for (int i = 0; i < n_spheres; i++) {
     update_accel_sphere(spheres, n_spheres, g, i);
   }
 }
 
 void update_velocities(sphere_t *spheres, int n_spheres, float t) {
-  cilk_for (int i = 0; i < n_spheres; i++) {
+  for (int i = 0; i < n_spheres; i++) {
     spheres[i + n_spheres].vel = qadd(spheres[i].vel, scale(t, spheres[i].accel));
   }
 }
 
 void update_positions(sphere_t *spheres, int n_spheres, float t) {
-  cilk_for (int i = 0; i < n_spheres; i++) {
+  for (int i = 0; i < n_spheres; i++) {
     spheres[i + n_spheres].pos = qadd(spheres[i].pos, scale(t, spheres[i].vel));
   }
 }
@@ -79,7 +79,7 @@ void do_ministep(sphere_t *spheres, int n_spheres, double g, float minCollisionT
   update_velocities(spheres, n_spheres, minCollisionTime);
   update_positions(spheres, n_spheres, minCollisionTime);
 
-  cilk_for (int k = 0; k < n_spheres; k++) {
+  for (int k = 0; k < n_spheres; k++) {
     spheres[k] = spheres[k + n_spheres];
   }
 
@@ -88,8 +88,10 @@ void do_ministep(sphere_t *spheres, int n_spheres, double g, float minCollisionT
   }
 
   vector_t distVec = qsubtract(spheres[i].pos, spheres[j].pos);
-  float scale1 = 2 * spheres[j].mass / ((float)spheres[i].mass + (float)spheres[j].mass);
-  float scale2 = 2 * spheres[i].mass / ((float)spheres[i].mass + (float)spheres[j].mass);
+  float scale1 = 2 * spheres[j].mass /
+                 (float)((double)spheres[i].mass + (double)spheres[j].mass);
+  float scale2 = 2 * spheres[i].mass /
+                 (float)((double)spheres[i].mass + (double)spheres[j].mass);
   float distNorm = qdot(distVec, distVec);
   vector_t velDiff = qsubtract(spheres[i].vel, spheres[j].vel);
   vector_t scaledDist = scale(qdot(velDiff, distVec) / distNorm, distVec);
@@ -164,7 +166,7 @@ int check_for_collision(sphere_t *spheres, int i, int j, float *timeToCollision)
 
 void do_timestep(simulator_state_t* state, float timeStep) {
   float timeLeft = timeStep;
-  int n = state->s_spec.n_spheres;
+
   // If collisions are getting too frequent, we cut time step early
   // This allows for smoother rendering without losing accuracy
   while (timeLeft > 0.000001) {
@@ -172,63 +174,20 @@ void do_timestep(simulator_state_t* state, float timeStep) {
     int indexCollider1 = -1;
     int indexCollider2 = -1;
 
-    float *row_best_t = (float*)malloc(sizeof(float) * (size_t)n);
-    int   *row_best_i = (int*)malloc(sizeof(int) * (size_t)n);
-    int   *row_best_j = (int*)malloc(sizeof(int) * (size_t)n);
-    if (!row_best_t || !row_best_i || !row_best_j) {
-    
-      free(row_best_t); free(row_best_i); free(row_best_j);
-      for (int i = 0; i < n; i++) {
-        for (int j = i + 1; j < n; j++) {
-          if (check_for_collision(state->spheres, i, j, &minCollisionTime)) {
-            indexCollider1 = i;
-            indexCollider2 = j;
-          }
+    for (int i = 0; i < state->s_spec.n_spheres; i++) {
+      for (int j = i + 1; j < state->s_spec.n_spheres; j++) {
+        if (check_for_collision(state->spheres, i, j, &minCollisionTime)) {
+          indexCollider1 = i;
+          indexCollider2 = j;
         }
       }
-    } else {
-   
-      cilk_for (int i = 0; i < n; ++i) {
-        float localMin = timeLeft;
-        float tbest = INFINITY;
-        int ibest = -1, jbest = -1;
-        for (int j = i + 1; j < n; ++j) {
-          float t = localMin;
-          if (check_for_collision(state->spheres, i, j, &t)) {
-    
-            if (t < localMin) localMin = t;
-            if (t < tbest || (t == tbest)) {
-              tbest = t; ibest = i; jbest = j;
-            }
-          }
-        }
-        row_best_t[i] = tbest;
-        row_best_i[i] = ibest;
-        row_best_j[i] = jbest;
-      }
-            for (int i = 0; i < n; ++i) {
-        int ib = row_best_i[i], jb = row_best_j[i];
-        if (ib < 0) continue;
-        float tb = row_best_t[i];
-        
-        if (tb < minCollisionTime ||
-            (tb == minCollisionTime &&
-             (ib > indexCollider1 || (ib == indexCollider1 && jb > indexCollider2)))) {
-          minCollisionTime = tb;
-          indexCollider1 = ib;
-          indexCollider2 = jb;
-        }
-      }
+    }
 
-      free(row_best_t);
-      free(row_best_i);
-      free(row_best_j);
+    do_ministep(state->spheres, state->s_spec.n_spheres, state->s_spec.g, minCollisionTime, indexCollider1, indexCollider2);
+
+    timeLeft = timeLeft - minCollisionTime;
   }
-    do_ministep(state->spheres, n, state->s_spec.g, minCollisionTime, indexCollider1, indexCollider2);
-    timeLeft -= minCollisionTime;
 }
-}
-
 
 sphere_t* simulate(simulator_state_t* state) {
   int n_spheres = state->s_spec.n_spheres;
