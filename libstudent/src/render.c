@@ -463,11 +463,12 @@ const float* render(struct renderer_state *state, const sphere_t *spheres, int n
             }
         }
 
-        // 释放动态分配的内存
+       
         free(best_t);
         free(best_i);
         free(rays);
     }
+  free(bboxes);
   free(z_buffer);
   free(sorted_spheres);
   return rs->img;
