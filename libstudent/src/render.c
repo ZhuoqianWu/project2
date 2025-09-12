@@ -233,15 +233,13 @@ const float* render(struct renderer_state *state, const sphere_t *spheres, int n
     vector_t cam_v = vcross(cam_dir, cam_u);
     cam_v = scale(1.0f/qsize(cam_v), cam_v);
 
-    const float viewport_height = spec->viewport_size;
-    const float fov_factor = viewport_height / (2.0f * (float)resolution);
-
     sphere_t *sorted_spheres = (sphere_t*)malloc(sizeof(sphere_t) * (size_t)n_spheres);
     if (!sorted_spheres) { free(z_buffer); return rs->img; }
     memcpy(sorted_spheres, spheres, sizeof(sphere_t) * (size_t)n_spheres);
     g_eye_for_sort = spec->eye;
     qsort(sorted_spheres, (size_t)n_spheres, sizeof(sphere_t), sphere_depth_cmp);
-
+    
+    typedef struct { int x0, y0, x1, y1; int valid; } bbox_t;
     proj_ctx_t ctx;
     ctx.eye = spec->eye;
     ctx.u = spec->proj_plane_u;
@@ -261,7 +259,11 @@ const float* render(struct renderer_state *state, const sphere_t *spheres, int n
     ctx.n = scale(1.0f / Ln, ctx.n);
     ctx.pixel_size = spec->viewport_size / (float)resolution;
     ctx.resolution = resolution;
-
+    bbox_t *bboxes = (bbox_t*)malloc(sizeof(bbox_t) * (size_t)n_spheres);
+    if (!bboxes) {
+      free(sorted_spheres);
+      return rs->img;
+    }
     for (int i = 0; i < n_spheres; i++) {
         const sphere_t *s = &sorted_spheres[i];
         float xs[13], ys[13]; 
@@ -304,7 +306,7 @@ const float* render(struct renderer_state *state, const sphere_t *spheres, int n
     } else {
         p[11] = p[1]; p[12] = p[2];
     }
-        for (int k = 0; k < 5; k++) {
+      for (int k = 0; k < 5; k++) {
             float xx, yy;
             if (project_point_to_pixel(&ctx, p[k], &xx, &yy)) {
                 xs[count] = xx;
@@ -312,11 +314,14 @@ const float* render(struct renderer_state *state, const sphere_t *spheres, int n
                 count++;
             }
         }
-        if (count == 0) continue;
-
+        // if (count == 0) continue; 不能随意cilk_for 会导致竞争以及精度不够。
+        if (count == 0) {
+            bboxes[i].valid = 0;
+            continue;
+        }
         float min_x = xs[0], max_x = xs[0];
         float min_y = ys[0], max_y = ys[0];
-        for (int k = 1; k < count; k++) {
+      for (int k = 1; k < count; k++) {
             if (xs[k] < min_x) min_x = xs[k];
             if (xs[k] > max_x) max_x = xs[k];
             if (ys[k] < min_y) min_y = ys[k];
@@ -337,10 +342,10 @@ const float* render(struct renderer_state *state, const sphere_t *spheres, int n
         max_x += width * 0.04f;
         min_y -= height * 0.04f;
         max_y += height * 0.04f;
-        int x0 = (int)floorf(min_x) - padding;
-        int x1 = (int)ceilf(max_x) + padding;
-        int y0 = (int)floorf(min_y) - padding;
-        int y1 = (int)ceilf(max_y) + padding;
+        int x0 = (int)floorf(min_x) - base_padding;
+        int x1 = (int)ceilf(max_x) + base_padding;
+        int y0 = (int)floorf(min_y) - base_padding;
+        int y1 = (int)ceilf(max_y) + base_padding;
         if (x1 < 0 || x0 >= resolution || y1 < 0 || y0 >= resolution) {
             bboxes[i].valid = 0;
             continue;
@@ -399,7 +404,7 @@ const float* render(struct renderer_state *state, const sphere_t *spheres, int n
         }
 
   
-        cilk_for (int i = 0; i < n_spheres; i++) {
+        for (int i = 0; i < n_spheres; i++) {
             if (!bboxes[i].valid) continue;
 
             int x0 = bboxes[i].x0 > x_tile0 ? bboxes[i].x0 : x_tile0;
@@ -444,7 +449,7 @@ const float* render(struct renderer_state *state, const sphere_t *spheres, int n
                 normal = scale(1.0f / n_size, normal);
 
                 double red = 0.0, green = 0.0, blue = 0.0;
-                cilk_for (int j = 0; j < spec->n_lights; j++) {
+                for (int j = 0; j < spec->n_lights; j++) {
                     light_t L = spec->lights[j];
                     vector_t itl = qsubtract(L.pos, intersection);
                     if (qdot(normal, itl) <= 0.0f) continue;
