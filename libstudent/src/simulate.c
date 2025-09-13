@@ -206,7 +206,7 @@ void do_timestep(simulator_state_t* state, float timeStep) {
         row_best_i[i] = ibest;
         row_best_j[i] = jbest;
       }
-            for (int i = 0; i < n; ++i) {
+      for (int i = 0; i < n; ++i) {
         int ib = row_best_i[i], jb = row_best_j[i];
         if (ib < 0) continue;
         float tb = row_best_t[i];
